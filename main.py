@@ -88,7 +88,7 @@ def parse_args():
     parser.add_argument(
         "--onnx-path",
         type=str,
-        default="cat_dog_classifier.onnx"
+        default="cat_dog_classifier.onnx",
         help="Path to save ONNX model. A model for model interoperability"
     )
 
@@ -115,7 +115,7 @@ def parse_args():
     parser.add_argument(
         "--early-stopping-patience",
         type=int,
-        default=3
+        default=3,
         help="Number of epochs to wait if there is no appreciable improvement"
     )
 
@@ -128,7 +128,7 @@ def parse_args():
 
     parser.add_argument(
         "--inference",
-        action="store_ture",
+        action="store_true",
         help="Run inference on a single image instead of training"
     )
 
@@ -150,9 +150,23 @@ def parse_args():
     return parser.parse_args()
 
 
+def setup_device():
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("Using NVIDIA GPU(CUDA)")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print("Using Apple GPU (MPS)")
+    else:
+        device = torch.device("cpu")
+        print("Using CPU")
+    return device
+
+
 def main():
     # Parse command line flags
-    args = parse_args() 
+    args = parse_args()
+    device = setup_device()
     
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import (
-    dataloader,
+    DataLoader,
     random_split,
     Subset
 )
@@ -24,7 +24,7 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--data-dir",
+        "--data_dir",
         type=str,
         default="./data",
         help="Path to dataset directory"
@@ -44,21 +44,21 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--batch-size",
+        "--batch_size",
         type=int,
         default=32,
         help="Batch size for training - how many images to process at once"
     )
 
     parser.add_argument(
-        "--learning-rate",
+        "--learning_rate",
         type=float,
         default=0.001,
         help="Learning rate - controls how quickly our model learns"
     )
 
     parser.add_argument(
-        "--num-epochs",
+        "--num_epochs",
         type=int,
         default=10,
         help="Number of training epochs - each epoch processes entire dataset once"
@@ -72,28 +72,28 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--weight-decay",
+        "--weight_decay",
         type=float,
         default=1e-4,
         help="Help prevent overfitting by penalizing very large weight in one direction or the other (L2 penalty)"
     )
 
     parser.add_argument(
-        "--model-path",
+        "--model_path",
         type=str,
         default="cat_dog_classifier.pth",
         help="Path to save the Pytorch model"
     )
 
     parser.add_argument(
-        "--onnx-path",
+        "--onnx_path",
         type=str,
         default="cat_dog_classifier.onnx",
         help="Path to save ONNX model. A model for model interoperability"
     )
 
     parser.add_argument(
-        "--val-split",
+        "--val_split",
         type=float,
         default=0.2,
         help="Validation set split ratio - percentage of data used for validation"
@@ -107,20 +107,20 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--early-stopping",
+        "--early_stopping",
         action="store_true",
         help="Enable early stopping"
     )
     
     parser.add_argument(
-        "--early-stopping-patience",
+        "--early_stopping-patience",
         type=int,
         default=3,
         help="Number of epochs to wait if there is no appreciable improvement"
     )
 
     parser.add_argument(
-        "--early-stopping-min-delta",
+        "--early_stopping-min-delta",
         type=float,
         default=0.001,
         help="Minimum change to qualify as improvement"    
@@ -133,14 +133,14 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--image-path",
+        "--image_path",
         type=str,
         default=None,
         help="Path to the image file for inference"
     )
 
     parser.add_argument(
-        "--model-file",
+        "--model_file",
         type=str,
         default=None,
         help="Path to the model file (.pth or .onnx) for inference"
@@ -163,11 +163,98 @@ def setup_device():
     return device
 
 
+
+
+def load_data(data_dir, image_size, val_split, batch_size, device, augmentation):
+    warnings.filterwarnings("ignore", message="Truncated File Read", category=UserWarning, module= "PIL.TiffImagePlugin")
+    use_pin_memory = (device.type != "mps")
+    val_transform = transforms.Compose([
+        transforms.Resize((image_size, image_size)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    if augmentation:
+        print("Using data augmentation during training")
+        train_transform = transforms.Compose([
+            transforms.Resize((image_size, image_size)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(15),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+    else:
+        print("No data augmentation")
+        train_transform = val_transform
+    
+    try:
+        full_dataset = datasets.ImageFolder(root=data_dir)
+        print(f"Found {len(full_dataset)} images in total")
+        print(f"Classes: {full_dataset.classes}")
+
+        train_size = int((1 - val_split) * len(full_dataset))
+        val_size = len(full_dataset) - train_size
+
+        generator = torch.Generator().manual_seed(42)
+        train_indices, val_indices = random_split(range(len(full_dataset)), [train_size, val_size], generator=generator)
+        
+        
+        train_subset = Subset(full_dataset, train_indices.indices)
+        train_subset.dataset.transform = train_transform
+        val_subset = Subset(full_dataset, val_indices.indices)
+        val_subset.dataset.transform = train_transform
+
+        print(f"Training set: {len(train_subset)} images")
+        print(f"Validation set: {len(val_subset)} images")
+
+
+    except Exception as e:
+        print(f"Error loading data set from {data_dir}: {e}")
+        exit(1)
+
+
+    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=use_pin_memory)
+    val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=use_pin_memory)
+
+    return train_loader, val_loader
+
+
+def run_training_and_cleanup(args, device):
+    using_workers = False
+    try:
+        train_loader, val_loader = load_data(
+            args.data_dir,
+            args.image_size,
+            args.val_split,
+            args.batch_size,
+            device,
+            args.augmentation
+        )
+    except Exception as e:
+        print(f"Exception ocurred: {e}")
+    finally:
+        print("Cleaning up resources")
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+        elif device.type == "mps":
+            gc.collect()
+            gc.collect()
+        gc.collect()
+
 def main():
     # Parse command line flags
     args = parse_args()
+
+    # Setup device
     device = setup_device()
     
+    if args.inference:
+        print("Performing inference")
+    else:
+        print("Training model")
+        using_workers = run_training_and_cleanup(args, device)
 
 if __name__ == "__main__":
     main()

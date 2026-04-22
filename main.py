@@ -339,8 +339,40 @@ def run_training_and_cleanup(args, device):
             device,
             args.augmentation
         )
+        print("Data loading completed successfully")
         using_workers = True
+        
+        print("Initializing neural network model..")
+        print("Model architecture: ")
+        print(model)
         model = CatDogCNN(args.image_size).to(device)
+
+        # Calculate and display total number of trainable parameters
+        # This gives us inside into model complexity and memory reqirements
+        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Total trainable parameters: {total_params:,}")
+
+        # Configure loss function
+        print("Setting up training components...")
+        criterion = nn.CrossEntropyLoss()
+
+        # Configure optimizer
+        optimizer = optim.SGD(
+            model.parameters(), # All model weights and biases to optimize
+            lr=args.learning_rate, # Step size for weight updates
+            momentum=args.momentum, # Momentum factor for smoother convergernce
+            weight_decay=args.weight_decay, # Regularization
+        )
+
+        # Configure learning rate scheduler
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer=optimizer,
+            mode="min",
+            factor=0.1,
+            patience=args.patience
+        )
+
+        # Training loop execution
 
     except Exception as e:
         print(f"Exception ocurred: {e}")

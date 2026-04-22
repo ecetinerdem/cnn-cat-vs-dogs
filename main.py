@@ -271,7 +271,60 @@ class CatDogCNN(nn.Module):
         self.relu = nn.ReLU()
 
 
+    def forward(self, x):
+        """
+        Forward pass through the network.
+        
+        This defines how the input flows through the layers to produce an output.
+        Each operation transforms the tensor shape and content progressively
 
+        Args: 
+            x (Tensor): Input tensor of shape [batch_size, 3, image_size, image_size]
+
+        Returns:
+            Tensor: Output tensor of shape [batch_size, 2]
+                    Contains logits for each class (cat=0, dog=1)
+        """
+        # Convolutional feature extraction
+        for i in range(1, 5):
+            # Dynamically get the layer for the block(conv1, bn1, pool1, etc.)
+            # getattr(self, f'conv{i}')
+            conv = getattr(self, f'conv{i}')
+            bn = getattr(self, f'bn{i}')
+            pool = getattr(self, f'pool{i}')
+
+            # Step 1: Apply 2d convolution
+            x = conv(x)
+
+            # Step 2: Apply batch normalization
+            x = bn(x)
+
+            # Step 3: Apply ReLU activation
+            x = self.relu(x)
+
+            # Step 4: Aplly max pooling
+            x = pool(x)
+
+        # After all 4 blocks, tensor shape is approc. [batch, 256, image_size /16]
+
+        # Prepate for classification
+        # Flatten 4D feature maps into 2d for fully connected layer
+        x = x.view(x.size(0), -1)
+
+        # Classification layers
+        # First fully connected layer
+        x = self.fc1(x)
+
+        # Apply ReLU activation
+        x = self.relu(x)
+
+        # Drop out layer
+        x = self.dropout(x)
+
+        # Final classification layer
+        x = self.fc2(x)
+
+        return x
 
 
 def run_training_and_cleanup(args, device):

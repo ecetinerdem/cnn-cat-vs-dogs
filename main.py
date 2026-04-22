@@ -203,8 +203,9 @@ def load_data(data_dir, image_size, val_split, batch_size, device, augmentation)
         
         train_subset = Subset(full_dataset, train_indices.indices)
         train_subset.dataset.transform = train_transform
+        
         val_subset = Subset(full_dataset, val_indices.indices)
-        val_subset.dataset.transform = train_transform
+        val_subset.dataset.transform = val_transform
 
         print(f"Training set: {len(train_subset)} images")
         print(f"Validation set: {len(val_subset)} images")
@@ -220,9 +221,62 @@ def load_data(data_dir, image_size, val_split, batch_size, device, augmentation)
 
     return train_loader, val_loader
 
+class CatDogCNN(nn.Module):
+    def __init__(self, image_size):
+        super(CatDogCNN, self).__init__()
+        
+        # First convolutional block
+        # Conv2d layer: Applies 2d convolution to extract visual features
+        # 3 input channels (RGB), 32 output feature maps, 3x3 kernel
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
+
+        # BatchNorm2d layer: normalizes the outputs of the convolutional layer
+        # Helps with faster and more stable training
+        self.bn1 = nn.BatchNorm2d(32)
+
+        # MaxPool2d layer: Reduces spatial dimensions by taking maximum in 2x2 regions
+        # This reduces computation and helps with translation invariance
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        # Second convolutional block
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        # Third convolutional block
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(128)
+        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        # Forth convolutional block
+        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
+        self.bn4 = nn.BatchNorm2d(256)
+        self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        # Calculate the dimensions for a fully connected layer
+        # After 4 pooling layers (each reducing dimensions by half) the size is divded by 16
+        feature_size = image_size // 16
+        fc_input_size = 256 * feature_size * feature_size
+
+        # Fully connected layers for classification
+        # Takes flattened feature maps and outputs class probabilities
+        self.fc1 = nn.Linear(fc_input_size, 512)
+
+        # Drop out layer: randomly zeroes some elements during training
+        # This prevents overfitting by making the network more robust
+        self.dropout = nn.Dropout(0.5)
+
+        # Final layer: outputs tw values for two classes
+        self.fc2 = nn.Linear(512, 2)
+        self.relu = nn.ReLU()
+
+
+
+
 
 def run_training_and_cleanup(args, device):
     using_workers = False
+    
     try:
         train_loader, val_loader = load_data(
             args.data_dir,
@@ -232,6 +286,9 @@ def run_training_and_cleanup(args, device):
             device,
             args.augmentation
         )
+        using_workers = True
+        model = CatDogCNN(args.image_size).to(device)
+
     except Exception as e:
         print(f"Exception ocurred: {e}")
     finally:

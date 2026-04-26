@@ -327,6 +327,107 @@ class CatDogCNN(nn.Module):
         return x
 
 
+
+def train_model(
+        model,
+        train_loader,
+        val_loader,
+        criterion,
+        optimizer,
+        scheduler,
+        device,
+        num_epochs,
+        early_stopping_enabled=False,
+        early_stopping_patience=3,
+        early_stopping_min_delta=0.001
+):
+    # Bring the comment here
+    print("\nStarting training...")
+    training_loss = []
+    val_accuracies = []
+
+    best_val_accuracy = 0.0
+    best_model_state = None
+
+    early_stopper = None
+
+    if early_stopping_enabled:
+        print(f"Early stopping enabled with patience = {early_stopping_patience}")
+    
+    for epoch in range(num_epochs):
+        model.train()
+        running_loss = 0.0
+        train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} (Training)")
+        
+        for inputs, labels in train_loader_tqdm:
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss
+            train_loader_tqdm.set_postfix(loss=running_loss / (train_loader_tqdm.n + 1))
+
+        avg_train_loss = running_loss / len(train_loader)
+        training_loss.append(avg_train_loss)
+
+        # Validation phase
+        model.eval()
+        correct_predictions = 0
+        total_samples = 0
+        val_running_loss = 0.0
+
+        with torch.no_grad():
+            val_loader_tqdm = tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} (Validation)")
+            for inputs, labels in val_loader_tqdm:
+                inputs, labels = inputs.to(device), labels.to(device)
+
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+                val_running_loss += loss.item()
+
+                _, predicted = torch.max(outputs.data, 1)
+                total_samples += labels.size(0)
+                correct_predictions += (predicted == labels).sum().item()
+
+                val_loader_tqdm.set_postfix(
+                    accuracy=f"{100 * correct_predictions / total_samples:.2f}%"
+                )
+
+        avg_val_loss = val_running_loss / len(val_loader)
+        val_accuracy = 100 * correct_predictions / total_samples
+        val_accuracies.append(val_accuracy)
+
+        scheduler.step(avg_val_loss)
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"Current learning rate: {current_lr}")
+
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+            best_model_state = model.state_dict().copy()
+
+            print(f"New best model: {best_val_accuracy:.2f}% accuracy")
+
+        print(
+            f"Epoch {epoch+1}/{num_epochs}: "
+            f"Train loss={avg_train_loss:.2f}, "
+            f"Val loss={avg_val_loss:.4f}, "
+            f"Val accuracy={val_accuracy:.2f}%"
+        )
+
+        if early_stopping_enabled and early_stopper(avg_val_loss):
+            print(f"Early stopping triggered after {epoch+1} epochs")
+            break
+
+    print(f"Training finished! BEst Validation accuracy: {best_val_accuracy:.2f}%")
+    
+    return best_model_state, best_val_accuracy
+
+
+
 def run_training_and_cleanup(args, device):
     using_workers = False
     
@@ -373,6 +474,24 @@ def run_training_and_cleanup(args, device):
         )
 
         # Training loop execution
+        
+        print("Starting the training process...")
+        print(f"Training for maximum {args.num_epochs} epochs...")
+        if args.early_stopping:
+            print(f"Early stopping enabled. Will stop if no improvement for {args.early_stopping_patience} epochs")
+        best_model_state, best_validation_accuracy = train_model(
+            model,
+            train_loader,
+            val_loader,
+            criterion,
+            optimizer,
+            scheduler,
+            device,
+            args.num_epochs,
+            args.early_stopping,
+            args.early_stopping_patience,
+            args.early_stopping_min_delta
+        )
 
     except Exception as e:
         print(f"Exception ocurred: {e}")

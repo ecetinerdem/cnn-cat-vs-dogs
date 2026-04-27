@@ -328,6 +328,36 @@ class CatDogCNN(nn.Module):
 
 
 
+
+
+class EarlyStopping:
+    def __init__(self, patience=3, min_delta=0.001):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+
+    def __call__(self, val_loss):
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+        elif score < self.best_score + self.min_delta:
+            self.counter += 1
+            print(f"Early stopping counter: {self.counter} out of {self.patience}")
+            if self.counter >= self.patience:
+                self.early_stop = True
+                print("Early stopping triggerd!")
+        else:
+            self.best_score = score
+            self.counter = 0
+        
+        return self.early_stop
+
+
+
+
 def train_model(
         model,
         train_loader,
@@ -341,7 +371,33 @@ def train_model(
         early_stopping_patience=3,
         early_stopping_min_delta=0.001
 ):
-    # Bring the comment here
+    """
+    Train the model and validate it after each epoch.
+
+    This function:
+    1. Trains the model on the training data
+    2. Validates the model on the validation data
+    3. Adjusts the learning rate if needed
+    4. Implements early stopping if enabled
+    5. Tracks and returns the best model state
+
+    Args:
+        model (nn.Module): The neural network model to train
+        train_loader (DataLoader): Data loader for training data
+        val_loader (DataLoader): Data loader for validation data,
+        criterion (nn.Module): Loss function (e.g. CrossEntropyLoss),
+        optimizer (optim.Optimizer): Optimization algorithm (e.g. SGD),
+        scheduler (optim.lr_scheduler): Learning rate scheduler,
+        device (torch.device): Device to use for computation,
+        num_epochs (int): Maximum number of training epochs,
+        early_stopping_enabled (bool): Whether to use early stopping,
+        early_stopping_patience (int): Number of epochs to wait before stopping,
+        early_stopping_min_delta (float): Minimum change to qualify as improvement
+    
+    Returns:
+        tuple: (best_model_state, best_val_accuracy) Best model state and its validation accuracy
+    """
+
     print("\nStarting training...")
     training_loss = []
     val_accuracies = []
@@ -350,10 +406,11 @@ def train_model(
     best_model_state = None
 
     early_stopper = None
-
     if early_stopping_enabled:
+        early_stopper = EarlyStopping(patience=early_stopping_patience, min_delta=early_stopping_min_delta)
         print(f"Early stopping enabled with patience = {early_stopping_patience}")
-    
+
+
     for epoch in range(num_epochs):
         model.train()
         running_loss = 0.0

@@ -623,7 +623,7 @@ def run_inference(image_path, model_file, image_size, device):
         return None, None
     
     transform = transforms.Compose([
-        transforms.Resize(image_size, image_size),
+        transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
@@ -681,7 +681,36 @@ def run_inference(image_path, model_file, image_size, device):
     print(f"\nInference results: \nImage: {image_path}\nPrediction: {pred_class}\nConfidence: {conf_score:.2f}")
     return pred_class, conf_score
 
+
+def setup_warning_suppression():
+    import warnings
+    import PIL.Image
+
+    warnings.filterwarnings("ignore", message="Truncated File Read")
+    warnings.filterwarnings("ignore", message=".*Truncated.*", category=UserWarning)
+    warnings.filterwarnings("ignore", category=UserWarning, module="PIL.TiffImagePlugin")
+    PIL.Image.warnings.simplefilter("ignore", PIL.Image.DecompressionBombWarning)
+    warnings.filterwarnings("ignore", message=".*EXIF.*", category=UserWarning)
+    warnings.filterwarnings("ignore", message=".*palette.*", category=UserWarning)
+
+
 def main():
+
+    """
+    Main function to train the model or run inference
+
+    This function:
+    1. Parses command line arguments
+    2. Sets up the device (CPU/GPU)
+    3. Either runs inference on a single image or trains a new model
+    4. Handles cleanup to prevent resource leaks
+
+    """
+
+    #Setup warning supression
+    setup_warning_suppression()
+
+    
     # Parse command line flags
     args = parse_args()
 

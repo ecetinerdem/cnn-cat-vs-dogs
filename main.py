@@ -601,16 +601,85 @@ def save_model(model, model_path, onnx_path, image_size, device):
                 export_params=True,
                 opset_version=13,
                 do_constant_folding=True,
-                input_names=["input"]
+                input_names=["input"],
                 output_names=["output"],
                 dynamic_axes={"input": {0: "batch_size"},
                               "output": {0: "batch_size"}}
-            )
+                )
         print(f"Model exported to ONNX format at {onnx_path}")
 
     except Exception as e:
         print(f"Error during ONNX export: {e}")
 
+
+
+
+def run_inference(image_path, model_file, image_size, device):
+    import numpy as np
+    from PIL import Image
+
+    if not Path(image_path).exists() or not Path(model_file).exists():
+        print("Error image or model not found")
+        return None, None
+    
+    transform = transforms.Compose([
+        transforms.Resize(image_size, image_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+
+    try:
+        image = Image.open(image_path).convert("RGB")
+        input_tensor = transform(image).unsqueeze(0).to(device)
+    except Exception as e:
+        print(f"Error loading image: {e}")
+        return None, None
+    
+    if Path(model_file).suffix == ".pth":
+        model = CatDogCNN(image_size).to(device)
+        try:
+            model.load_state_dict(torch.load
+                                  (model_file, map_location=device))
+            model.eval()
+            with torch.no_grad():
+                outputs = model(input_tensor)
+                probabilities = torch.nn.functional.softmax(outputs, dim=1)
+                confidence, predicted = torch.max(probabilities, 1)
+                pred_class = ["cat", "dog"][predicted.item()]
+                conf_score = confidence.item()
+    
+        except Exception as e:
+            print(f"Error with PyTorch file: {e}")
+            return None, None
+
+    elif Path(model_file).suffix == ".onnx":
+        try:
+            import onnxruntime as ort
+            
+            ort_session = ort.InferenceSession(model_file)
+            ort_inputs = {ort_session.get_inputs()[0].name: input_tensor.cpu().numpy()}
+            ort_outputs = ort_session.run(None, ort_inputs)
+            outputs = ort_outputs[0]
+
+            def softmax(x):
+                exp_x = np.exp(x - np.max(x))
+                return exp_x / exp_x.sum()
+            
+            probabilities = softmax(outputs[0])
+            predicted = np.argmax(probabilities)
+            pred_class = ["cat", "dog"][predicted]
+            conf_score = float(probabilities[predicted])
+
+        except Exception as e:
+            print(f"Error with ONNX file: {e}")
+            return None, None
+
+    else:
+        print("Error: unsupported model format")
+        return None, None
+
+    print(f"\nInference results: \nImage: {image_path}\nPrediction: {pred_class}\nConfidence: {conf_score:.2f}")
+    return pred_class, conf_score
 
 def main():
     # Parse command line flags
@@ -621,6 +690,24 @@ def main():
     
     if args.inference:
         print("Performing inference")
+        if not args.image_path:
+            print("Error:--image_path is required for inference")
+            exit(1)
+
+        if args.model_file:
+            model_file = args.model_file
+        elif Path(args.path.model_path).exists():
+            model_file = args.model_path
+            print(f"Using default PyTorch model: {model_file}")
+        elif Path(args.onnx_path).exists():
+            model_file = args.onnx_path
+            print(f"Using default ONNX model: {model_file}")
+        else:
+            print("Error: No trained model found")
+            exit(1)
+
+        run_inference(args.image_path, model_file, args.image_size, device)
+        return
     else:
         print("Training model")
         using_workers = run_training_and_cleanup(args, device)

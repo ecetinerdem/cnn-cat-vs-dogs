@@ -550,8 +550,31 @@ def run_training_and_cleanup(args, device):
             args.early_stopping_min_delta
         )
 
+        # Best model restoration
+        if best_model_state is not None:
+            model.load_state_dict(best_model_state)
+            print(f"Restore best model state (validation accuracy: {best_validation_accuracy:.2f})")
+        else:
+            print("Warning: No best model state saved, using final epoch model.")
+
+        # Model Persistence
+        print("Saving trained model...")
+        save_model(model, args.model_path, args.onnx_path, args.image_size, device)
+        print("Model saved successfully!")
+        print("\n" + "=" *50)
+        print("ALL TRAINING OPERATIONS COMPLETED SUCCESSFULLY")
+        print("\n" + "=" *50)
+
+        # Immediate cleanup of large objects for large operations
+        del train_loader
+        del val_loader
+        del model
+        return using_workers
+    
     except Exception as e:
-        print(f"Exception ocurred: {e}")
+        print(f"\nError during training: {e}")
+        print("Proceeding with cleanup and resource deallocation")
+        return using_workers
     finally:
         print("Cleaning up resources")
         if device.type == "cuda":
@@ -560,6 +583,34 @@ def run_training_and_cleanup(args, device):
             gc.collect()
             gc.collect()
         gc.collect()
+
+
+def save_model(model, model_path, onnx_path, image_size, device):
+    torch.save(model.state_dict(),model_path)
+    print(f"Pytoch model saved to {model_path}")
+
+    model.eval()
+    dummy_input = torch.randn(1, 3, image_size, image_size).to(device)
+
+    try:
+        with torch.no_grad():
+            torch.onnx.export(
+                model,
+                dummy_input,
+                onnx_path,
+                export_params=True,
+                opset_version=13,
+                do_constant_folding=True,
+                input_names=["input"]
+                output_names=["output"],
+                dynamic_axes={"input": {0: "batch_size"},
+                              "output": {0: "batch_size"}}
+            )
+        print(f"Model exported to ONNX format at {onnx_path}")
+
+    except Exception as e:
+        print(f"Error during ONNX export: {e}")
+
 
 def main():
     # Parse command line flags
@@ -573,6 +624,9 @@ def main():
     else:
         print("Training model")
         using_workers = run_training_and_cleanup(args, device)
+        if using_workers:
+            print("Forcing clean exit...")
+            os._exit(0)
 
 if __name__ == "__main__":
     main()
